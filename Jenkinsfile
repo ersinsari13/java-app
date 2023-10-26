@@ -1,21 +1,61 @@
-pipeline{
+pipeline {
     agent any
 
     tools {
-         maven 'maven'
-         jdk 'java'
+        maven "maven 3.9"
     }
 
-    stages{
-        stage('checkout'){
-            steps{
-                checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github access', url: 'https://github.com/sreenivas449/java-hello-world-with-maven.git']]])
+    environment {
+        DOCKER_USERNAME = credentials('DOCKER_USERNAME')
+        DOCKER_PASSWORD = credentials('DOCKER_PASSWORD')
+        DOCKER_IMAGE = "ersinsari/java:v-$BUILD_TAG"
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                sh 'mvn  -B -DskipTests clean package'
+            }
+
+            post {
+                success {
+                archiveArtifacts artifacts: 'java-app/target/*.jar', fingerprint: true
+                }
+            }
+        }        
+
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                junit 'java-app/target/surefire-reports/*.xml', fingerprint: true
+
+                }
             }
         }
-        stage('build'){
-            steps{
-               bat 'mvn package'
+
+        stage('Docker-image') {
+            steps {
+                sh 'docker image build -t $DOCKER_IMAGE .'
             }
         }
+
+        stage('Login-Dockerhub') {
+            steps {
+                sh '''
+                    docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+                    docker image push $DOCKER_IMAGE
+                '''
+
+            }
+        }
+
+        stage('create-container') {
+            steps {
+                sh 'docker container run --name frontend -p 80:80 $$DOCKER_IMAGE '
+            }
+        }        
     }
 }
